@@ -1,7 +1,7 @@
 // Cloudflare Pages Function for connecting to Gemini and Image Generation APIs.
-// This code runs at the edge and acts as a proxy for the LLM APIs.
+// This code runs at the edge and acts as a secure proxy for the LLM APIs.
 
-// API URLs for Text and Image generation (constants remain outside the function)
+// API URLs for Text and Image generation
 const TEXT_API_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent";
 const IMAGE_API_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-image-preview:generateContent";
 const MAX_RETRIES = 3;
@@ -134,6 +134,22 @@ async function generateImage(prompt, apiKey) {
 export default async function onRequest(context) {
     const request = context.request;
 
+    // 🔑 دریافت کلید API از محیط (Environment) - این مهمترین اصلاح است
+    const GEMINI_API_KEY = context.env.GEMINI_API_KEY; 
+
+    // --- NEW: بررسی وجود کلید API ---
+    if (!GEMINI_API_KEY || GEMINI_API_KEY.length < 10) { 
+        return new Response(JSON.stringify({
+           status: "error",
+           message_fa: "خطای پیکربندی: کلید GEMINI_API_KEY در تنظیمات Environment Variables یافت نشد یا نامعتبر است.",
+           error_details: "Configuration Error: API Key not found or too short."
+        }, null, 2), {
+           status: 500,
+           headers: { 'Content-Type': 'application/json' }
+        });
+    }
+    // --- END NEW CHECK ---
+
     // --- NEW: Handle Preflight OPTIONS Request for CORS ---
     if (request.method === 'OPTIONS') {
         return new Response(null, {
@@ -145,17 +161,17 @@ export default async function onRequest(context) {
                 'Access-Control-Allow-Headers': 'Content-Type',
                 // Allow the POST method
                 'Access-Control-Allow-Methods': 'POST',
-                // Cache the preflight result for 10 days (optional but good practice)
+                // Cache the preflight result for 10 days
                 'Access-Control-Max-Age': '86400', 
             },
         });
     }
     // --- END OPTIONS Handling ---
     
-    // Original POST check (must be updated to remove the 405 error if it was still active)
+    // Check for POST method
     if (request.method !== 'POST') {
         // If it's not OPTIONS and not POST, reject it (e.g., a GET request)
-        return new Response(JSON.stringify({ 
+        return new Response(JSON.stringify({
           status: "error",
           message_fa: "لطفاً با متد POST و بدنه JSON درخواست خود را ارسال کنید.",
         }, null, 2), {
@@ -164,50 +180,50 @@ export default async function onRequest(context) {
         });
     }
 
-  try {
-    const userRequest = await request.json();
-    const requestType = userRequest.type?.toLowerCase() || 'text';
-    const prompt = userRequest.prompt || "";
-    
-    if (prompt === "") {
+    try {
+        const userRequest = await request.json();
+        const requestType = userRequest.type?.toLowerCase() || 'text';
+        const prompt = userRequest.prompt || "";
+        
+        if (prompt === "") {
+            return new Response(JSON.stringify({
+                status: "error",
+                error_details: "پرامپت نمی‌تواند خالی باشد."
+            }, null, 2), {
+                status: 400, // Bad Request
+                headers: { 'Content-Type': 'application/json' }
+            });
+        }
+
+        let responseData;
+
+        if (requestType === 'image') {
+          // 🔑 ارسال کلید API به تابع generateImage
+          responseData = await generateImage(prompt, GEMINI_API_KEY);
+        } else {
+          // 🔑 ارسال کلید API به تابع generateText
+          responseData = await generateText(prompt, GEMINI_API_KEY);
+        }
+
+        // Return the final response with the generated data
+        return new Response(JSON.stringify(responseData, null, 2), {
+          status: 200,
+          headers: {
+            "Content-Type": "application/json;charset=UTF-8",
+            "Access-Control-Allow-Origin": "*", // Important for CORS
+          }
+        });
+
+    } catch (error) {
+        // Handle Worker and API errors
+        console.error("Pages Function Error:", error);
         return new Response(JSON.stringify({
-            status: "error",
-            error_details: "پرامپت نمی‌تواند خالی باشد."
+          status: "error",
+          message_fa: "خطا در پردازش درخواست یا فراخوانی API.",
+          error_details: error.message
         }, null, 2), {
-            status: 400, // Bad Request
-            headers: { 'Content-Type': 'application/json' }
+          status: 500,
+          headers: { 'Content-Type': 'application/json' }
         });
     }
-
-    let responseData;
-
-    if (requestType === 'image') {
-      // 🔑 ارسال کلید API به تابع generateImage
-      responseData = await generateImage(prompt, GEMINI_API_KEY);
-    } else {
-      // 🔑 ارسال کلید API به تابع generateText
-      responseData = await generateText(prompt, GEMINI_API_KEY);
-    }
-
-    // Return the final response with the generated data
-    return new Response(JSON.stringify(responseData, null, 2), {
-      status: 200,
-      headers: {
-        "Content-Type": "application/json;charset=UTF-8",
-        "Access-Control-Allow-Origin": "*", // Important for CORS
-      }
-    });
-
-  } catch (error) {
-    // Handle Worker and API errors
-    console.error("Pages Function Error:", error);
-    return new Response(JSON.stringify({
-      status: "error",
-      message_fa: "خطا در پردازش درخواست یا فراخوانی API.",
-      error_details: error.message
-    }, null, 2), {
-      status: 500,
-      headers: { 'Content-Type': 'application/json' }
-    });
-  }
 }
