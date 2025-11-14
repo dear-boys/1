@@ -1,0 +1,195 @@
+<!DOCTYPE html>
+<html lang="fa" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>مولد هوش مصنوعی (متن و تصویر) | Cloudflare Pages</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        /* تنظیم فونت Inter برای زیبایی و خوانایی */
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@100..900&display=swap');
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #0d1117;
+            color: #c9d1d9;
+        }
+        .container {
+            max-width: 90%;
+            margin: auto;
+            padding: 2rem 0;
+        }
+        .card {
+            background-color: #161b22;
+            border: 1px solid #30363d;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.3);
+        }
+        .ai-output {
+            min-height: 200px;
+            overflow-wrap: break-word;
+            white-space: pre-wrap;
+            background-color: #0d1117;
+            border-left: 4px solid #58a6ff;
+        }
+        /* آیکون لودینگ */
+        .spinner {
+            border: 4px solid rgba(255, 255, 255, 0.3);
+            border-top: 4px solid #58a6ff;
+            border-radius: 50%;
+            width: 24px;
+            height: 24px;
+            animation: spin 1s linear infinite;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        /* کلاس برای فعالسازی RTL کامل */
+        .rtl-text {
+            direction: rtl;
+            text-align: right;
+        }
+        /* تنظیم استایل رادیو باتن‌ها */
+        input[type="radio"]:checked + label {
+            background-color: #58a6ff;
+            color: white;
+            border-color: #58a6ff;
+        }
+    </style>
+</head>
+<body class="rtl-text">
+
+    <div class="container flex flex-col items-center">
+        <h1 class="text-3xl font-bold mb-6 text-center text-white">مولد هوش مصنوعی Gemini در Cloudflare Pages</h1>
+        <p class="text-gray-400 mb-8 text-center">از ورکرز (Functions) برای تولید متن یا تصویر در لبه شبکه استفاده کنید.</p>
+
+        <div class="card p-6 md:p-10 w-full max-w-2xl rounded-xl">
+            <!-- فرم ورودی -->
+            <div class="mb-6">
+                <label for="prompt-input" class="block text-sm font-medium mb-2">پرامپت خود را وارد کنید:</label>
+                <textarea id="prompt-input" rows="4" class="w-full p-3 bg-gray-700 border border-gray-600 rounded-lg focus:ring-blue-500 focus:border-blue-500 text-white" placeholder="مثال: یک نقاشی دیجیتال از یک گربه فضانورد که در حال نواختن گیتار است."></textarea>
+            </div>
+            
+            <!-- انتخاب نوع عملیات -->
+            <div class="mb-6">
+                <span class="block text-sm font-medium mb-2">نوع تولید:</span>
+                <div class="flex space-x-4 space-x-reverse justify-center">
+                    <div>
+                        <input type="radio" id="type-text" name="ai-type" value="text" class="hidden" checked>
+                        <label for="type-text" class="px-5 py-2 cursor-pointer rounded-full border border-gray-600 transition duration-200 hover:bg-gray-700">تولید متن (شعر/جواب)</label>
+                    </div>
+                    <div>
+                        <input type="radio" id="type-image" name="ai-type" value="image" class="hidden">
+                        <label for="type-image" class="px-5 py-2 cursor-pointer rounded-full border border-gray-600 transition duration-200 hover:bg-gray-700">تولید تصویر (Image)</label>
+                    </div>
+                </div>
+            </div>
+
+            <!-- دکمه تولید -->
+            <button id="generate-button" class="w-full bg-blue-600 text-white font-semibold py-3 rounded-xl hover:bg-blue-700 transition duration-200 flex items-center justify-center disabled:opacity-50" onclick="handleGenerate()">
+                <span id="button-text">تولید محتوا</span>
+                <div id="loading-spinner" class="spinner mr-2 hidden"></div>
+            </button>
+
+            <div id="error-message" class="text-red-400 mt-4 hidden"></div>
+
+        </div>
+
+        <!-- ناحیه نمایش خروجی -->
+        <div class="card mt-8 p-6 md:p-10 w-full max-w-2xl rounded-xl">
+            <h2 class="text-xl font-semibold mb-4 text-white">خروجی هوش مصنوعی</h2>
+            <div id="ai-output" class="ai-output p-4 rounded-lg text-gray-300 text-sm">
+                محتوای تولید شده در اینجا نمایش داده خواهد شد.
+            </div>
+        </div>
+
+    </div>
+
+    <script>
+        const promptInput = document.getElementById('prompt-input');
+        const generateButton = document.getElementById('generate-button');
+        const buttonText = document.getElementById('button-text');
+        const loadingSpinner = document.getElementById('loading-spinner');
+        const aiOutput = document.getElementById('ai-output');
+        const errorMessage = document.getElementById('error-message');
+
+        // نقطه پایانی Pages Function ما، مطابق با مسیر functions/api/generate.js
+        const API_ENDPOINT = '/api/generate'; 
+
+        async function handleGenerate() {
+            const prompt = promptInput.value.trim();
+            const selectedType = document.querySelector('input[name="ai-type"]:checked').value;
+
+            errorMessage.classList.add('hidden');
+            aiOutput.innerHTML = '<span class="text-gray-500">در حال ارسال درخواست به Pages Function...</span>';
+
+            if (prompt === "") {
+                errorMessage.textContent = "لطفاً یک پرامپت معتبر وارد کنید.";
+                errorMessage.classList.remove('hidden');
+                aiOutput.textContent = 'محتوای تولید شده در اینجا نمایش داده خواهد شد.';
+                return;
+            }
+
+            // غیرفعال کردن دکمه و نمایش لودینگ
+            generateButton.disabled = true;
+            buttonText.textContent = 'در حال پردازش...';
+            loadingSpinner.classList.remove('hidden');
+
+            try {
+                // فراخوانی واقعی Pages Function در مسیر /api/generate
+                const response = await fetch(API_ENDPOINT, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        type: selectedType,
+                        prompt: prompt
+                    })
+                });
+                
+                if (!response.ok) {
+                    // تلاش برای خواندن پیام خطا از بدنه در صورت وجود
+                    let errorDetails = `HTTP Error: ${response.status} ${response.statusText}`;
+                    try {
+                        const errorJson = await response.json();
+                        if (errorJson.error_details) {
+                            errorDetails += ` - Details: ${errorJson.error_details}`;
+                        } else if (errorJson.message_fa) {
+                             errorDetails += ` - Details: ${errorJson.message_fa}`;
+                        }
+                    } catch (e) {
+                        // بدنه JSON نبود، مهم نیست
+                    }
+
+                    throw new Error(errorDetails);
+                }
+
+                const result = await response.json();
+                
+                if (result.status === "error") {
+                    throw new Error(result.error_details || "خطای نامشخص در Function.");
+                }
+
+                if (selectedType === 'image' && result.image_url) {
+                    aiOutput.innerHTML = `<p class="text-sm mb-4 text-gray-400">${result.message_fa || 'تصویر تولید شد.'}</p>
+                                          <img src="${result.image_url}" alt="${prompt}" class="rounded-lg shadow-lg max-w-full h-auto mx-auto mt-4" style="max-width: 400px; border: 1px solid #30363d;">`;
+                } else if (selectedType === 'text' && result.poem) {
+                    aiOutput.innerHTML = `<p class="text-sm mb-4 text-gray-400">${result.message_fa || 'متن تولید شد.'}</p>
+                                          <div class="bg-gray-800 p-4 rounded-lg rtl-text whitespace-pre-wrap">${result.poem}</div>`;
+                } else {
+                    throw new Error("پاسخ موفقیت‌آمیز بود اما داده‌ی مورد انتظار (متن یا تصویر) یافت نشد.");
+                }
+
+            } catch (error) {
+                console.error("Error during API call:", error);
+                errorMessage.textContent = `خطا: ${error.message}`;
+                errorMessage.classList.remove('hidden');
+                aiOutput.textContent = 'متأسفانه در تولید محتوا خطایی رخ داد.';
+            } finally {
+                // فعال‌سازی مجدد دکمه
+                generateButton.disabled = false;
+                buttonText.textContent = 'تولید محتوا';
+                loadingSpinner.classList.add('hidden');
+            }
+        }
+    </script>
+</body>
+</html>
