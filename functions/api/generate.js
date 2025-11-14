@@ -132,30 +132,37 @@ async function generateImage(prompt, apiKey) {
 
 // This function is the entry point for a Cloudflare Pages Function.
 export default async function onRequest(context) {
-  const request = context.request;
-  
-  // 🔑 دریافت کلید API از محیط (Environment)
-  const GEMINI_API_KEY = context.env.GEMINI_API_KEY; 
+    const request = context.request;
 
-  if (!GEMINI_API_KEY) {
-     return new Response(JSON.stringify({
-        status: "error",
-        message_fa: "خطای پیکربندی: کلید GEMINI_API_KEY در تنظیمات Environment Variables یافت نشد."
-     }, null, 2), {
-        status: 500,
-        headers: { 'Content-Type': 'application/json' }
-     });
-  }
-
-  if (request.method !== 'POST') {
-    return new Response(JSON.stringify({
-      status: "error",
-      message_fa: "لطفاً با متد POST و بدنه JSON درخواست خود را ارسال کنید.",
-    }, null, 2), {
-      status: 405, // Method Not Allowed
-      headers: { 'Content-Type': 'application/json' }
-    });
-  }
+    // --- NEW: Handle Preflight OPTIONS Request for CORS ---
+    if (request.method === 'OPTIONS') {
+        return new Response(null, {
+            status: 200,
+            headers: {
+                // Allow the actual request (POST) to come from any origin
+                'Access-Control-Allow-Origin': '*', 
+                // Allow the required headers for JSON body
+                'Access-Control-Allow-Headers': 'Content-Type',
+                // Allow the POST method
+                'Access-Control-Allow-Methods': 'POST',
+                // Cache the preflight result for 10 days (optional but good practice)
+                'Access-Control-Max-Age': '86400', 
+            },
+        });
+    }
+    // --- END OPTIONS Handling ---
+    
+    // Original POST check (must be updated to remove the 405 error if it was still active)
+    if (request.method !== 'POST') {
+        // If it's not OPTIONS and not POST, reject it (e.g., a GET request)
+        return new Response(JSON.stringify({ 
+          status: "error",
+          message_fa: "لطفاً با متد POST و بدنه JSON درخواست خود را ارسال کنید.",
+        }, null, 2), {
+          status: 405, // Method Not Allowed
+          headers: { 'Content-Type': 'application/json' }
+        });
+    }
 
   try {
     const userRequest = await request.json();
